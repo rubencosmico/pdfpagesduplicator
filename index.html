@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duplicador de Páginas PDF</title>
+    <!-- Incluimos Tailwind CSS para un diseño limpio y moderno -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Incluimos la librería pdf-lib que nos permite manipular PDFs en el navegador -->
+    <script src="https://unpkg.com/pdf-lib/dist/pdf-lib.min.js"></script>
+    <style>
+        /* Estilo para el efecto de resaltado al arrastrar un archivo */
+        .drag-over {
+            background-color: #e0f2fe;
+            border-color: #0284c7;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans">
+
+    <div class="bg-white w-full max-w-lg p-8 rounded-2xl shadow-lg text-center">
+        <!-- Encabezado de la herramienta -->
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Duplicador de Páginas PDF</h1>
+            <p class="text-gray-600">Sube tu archivo PDF y te devolveremos uno nuevo con cada página duplicada.</p>
+        </header>
+
+        <!-- Zona para subir el archivo -->
+        <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-lg p-10 cursor-pointer transition-all duration-300 hover:border-blue-500 hover:bg-blue-50">
+            <!-- El input de archivo está oculto, lo activamos a través del label -->
+            <input type="file" id="pdf-upload" accept=".pdf" class="hidden">
+            <label for="pdf-upload" class="flex flex-col items-center justify-center cursor-pointer">
+                <svg class="w-16 h-16 text-gray-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-4-4V7a4 4 0 014-4h.586a1 1 0 01.707.293l2 2a1 1 0 00.707.293H15a4 4 0 014 4v1.586a1 1 0 01-.293.707l-2.001 2.001A1 1 0 0016 13h-3a1 1 0 01-1-1V8a1 1 0 00-1-1H7z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16v1a2 2 0 01-2 2H7a2 2 0 01-2-2v-1"></path></svg>
+                <p class="text-gray-500"><span class="font-semibold text-blue-600">Haz clic para subir</span> o arrastra y suelta tu archivo PDF aquí.</p>
+            </label>
+        </div>
+
+        <!-- Zona de estado y descarga -->
+        <div id="status-area" class="mt-6 h-16 flex items-center justify-center">
+             <p id="status-text" class="text-gray-500">Esperando archivo...</p>
+             <a href="#" id="download-link" class="hidden bg-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:bg-green-600 transition-all duration-300">
+                Descargar PDF Duplicado
+             </a>
+        </div>
+    </div>
+
+    <script>
+        // Obtenemos las referencias a los elementos del DOM que vamos a necesitar
+        const dropZone = document.getElementById('drop-zone');
+        const uploadInput = document.getElementById('pdf-upload');
+        const statusText = document.getElementById('status-text');
+        const downloadLink = document.getElementById('download-link');
+
+        // --- Lógica para arrastrar y soltar (Drag and Drop) ---
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault(); // Prevenimos el comportamiento por defecto del navegador
+            dropZone.classList.add('drag-over');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('drag-over');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('drag-over');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadInput.files = files; // Asignamos el archivo soltado al input
+                handleFileSelect({ target: uploadInput }); // Procesamos el archivo
+            }
+        });
+
+        // Evento que se dispara cuando el usuario selecciona un archivo
+        uploadInput.addEventListener('change', handleFileSelect);
+
+        // --- Función principal para manejar la selección del archivo ---
+        
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+
+            if (!file) {
+                updateStatus('No se seleccionó ningún archivo.', 'text-gray-500');
+                return;
+            }
+
+            if (file.type !== 'application/pdf') {
+                updateStatus('Error: El archivo debe ser un PDF.', 'text-red-500');
+                return;
+            }
+
+            // Si el archivo es válido, comenzamos el proceso
+            await processPdf(file);
+        }
+
+        // --- Función para procesar el PDF ---
+
+        async function processPdf(file) {
+            updateStatus('Procesando, por favor espera...', 'text-blue-600', true);
+            
+            try {
+                // Obtenemos la librería PDFLib del scope global (cargada desde el CDN)
+                const { PDFDocument } = PDFLib;
+
+                // Leemos el archivo subido como un ArrayBuffer
+                const existingPdfBytes = await file.arrayBuffer();
+                
+                // Cargamos el documento PDF original
+                const pdfDoc = await PDFDocument.load(existingPdfBytes);
+
+                // Creamos un nuevo documento PDF donde pondremos las páginas duplicadas
+                const newPdfDoc = await PDFDocument.create();
+
+                const pageCount = pdfDoc.getPageCount();
+
+                // Recorremos cada página del documento original
+                for (let i = 0; i < pageCount; i++) {
+                    // Copiamos la página i del documento original al nuevo documento
+                    // Hacemos esto dos veces para duplicarla
+                    const [copiedPage1] = await newPdfDoc.copyPages(pdfDoc, [i]);
+                    newPdfDoc.addPage(copiedPage1);
+                    
+                    const [copiedPage2] = await newPdfDoc.copyPages(pdfDoc, [i]);
+                    newPdfDoc.addPage(copiedPage2);
+                }
+
+                // Guardamos el nuevo PDF en memoria como un array de bytes
+                const newPdfBytes = await newPdfDoc.save();
+
+                // Creamos un "Blob", que es un objeto similar a un archivo
+                const blob = new Blob([newPdfBytes], { type: 'application/pdf' });
+
+                // Generamos una URL para que el usuario pueda descargar el Blob
+                const downloadUrl = URL.createObjectURL(blob);
+
+                // Configuramos el enlace de descarga
+                const originalFileName = file.name.replace(/\.pdf$/i, '');
+                downloadLink.href = downloadUrl;
+                downloadLink.download = `${originalFileName}_duplicado.pdf`;
+                
+                // Mostramos el botón de descarga y ocultamos el texto de estado
+                statusText.classList.add('hidden');
+                downloadLink.classList.remove('hidden');
+
+            } catch (error) {
+                console.error(error);
+                updateStatus('Ha ocurrido un error al procesar el PDF.', 'text-red-500');
+            }
+        }
+
+        // --- Función de utilidad para actualizar el estado ---
+        
+        function updateStatus(message, colorClass, isProcessing = false) {
+            // Reiniciamos la UI
+            statusText.textContent = message;
+            statusText.className = `text-lg ${colorClass}`;
+            statusText.classList.remove('hidden');
+            downloadLink.classList.add('hidden');
+            
+            // Limpiamos el valor del input para permitir subir el mismo archivo de nuevo
+            uploadInput.value = ''; 
+        }
+
+    </script>
+</body>
+</html>
